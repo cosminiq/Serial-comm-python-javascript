@@ -30,7 +30,7 @@ A web-based application for monitoring and managing multiple UART (serial) conne
 1. **Clone the Repository**:
    ```bash
    git clone https://github.com/cosminiq/Serial-comm-python-javascript.git
-   cd multi-uart-monitor
+   cd Serial-comm-python-javascript
    ```
 
 2. **Set Up a Virtual Environment**:
