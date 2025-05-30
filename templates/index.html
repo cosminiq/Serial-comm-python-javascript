@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-UART Serial Monitor</title>
+
+    <!-- External Dependencies -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+
+    <!-- Local Stylesheets -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+
+    <!-- Flask Configuration -->
+    <script>
+        window.FLASK_CONFIG = {
+            BASE_URL: "{{ url_for('index', _external=True).rstrip('/') }}",
+            SOCKET_NAMESPACE: "{{ config.get('SOCKETIO_NAMESPACE', '') }}",
+            DEBUG: {{ 'true' if config.get('DEBUG', False) else 'false' }}
+        };
+    </script>
+</head>
+
+<body>
+    <!-- Header Section -->
+    <header class="header">
+        <div class="header-brand">
+            <h1>
+                <i class="fas fa-terminal"></i>
+                Multi-UART Monitor
+                <small class="version">Flask Edition</small>
+            </h1>
+        </div>
+        <div class="header-controls">
+            <button id="scanPorts" class="btn" title="Scan for available serial ports (Ctrl+S)">
+                <i class="fas fa-search"></i>
+                <span class="btn-text">Scan Ports</span>
+            </button>
+            <button id="addSession" class="btn" title="Add new UART session (Ctrl+N)">
+                <i class="fas fa-plus"></i>
+                <span class="btn-text">Add Session</span>
+            </button>
+            <button id="exportData" class="btn" title="Export session data (Ctrl+E)">
+                <i class="fas fa-download"></i>
+                <span class="btn-text">Export</span>
+            </button>
+            <div class="status-indicator">
+                <span id="appStatusDot" class="status-dot"></span>
+                <span id="appStatusText">Initializing...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="main-container">
+        <!-- Control Panel -->
+        <aside class="control-panel">
+            <!-- Global Controls Section -->
+            <div class="panel-section">
+                <h3>
+                    <i class="fas fa-cogs"></i>
+                    Global Controls
+                </h3>
+                <div class="global-controls">
+                    <button id="connectAll" class="btn btn-success" title="Connect all configured sessions">
+                        <i class="fas fa-plug"></i>
+                        <span class="btn-text">Connect All</span>
+                    </button>
+                    <button id="disconnectAll" class="btn btn-danger" title="Disconnect all active sessions">
+                        <i class="fas fa-times"></i>
+                        <span class="btn-text">Disconnect All</span>
+                    </button>
+                    <button id="clearAll" class="btn" title="Clear all session messages">
+                        <i class="fas fa-trash"></i>
+                        <span class="btn-text">Clear All</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filters & Search Section -->
+            <div class="panel-section">
+                <h3>
+                    <i class="fas fa-filter"></i>
+                    Filters & Search
+                </h3>
+                <div class="filter-controls">
+                    <div class="input-group">
+                        <input type="text" id="globalSearch" class="input-field"
+                            placeholder="Search messages across all sessions..."
+                            title="Filter messages containing this text">
+                        <button class="btn btn-clear"
+                            onclick="document.getElementById('globalSearch').value=''; app.filterMessages('');"
+                            title="Clear search">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <select id="logLevel" class="select-field" title="Filter by message type">
+                        <option value="all">All Message Types</option>
+                        <option value="info">Info Messages</option>
+                        <option value="warning">Warning Messages</option>
+                        <option value="error">Error Messages</option>
+                        <option value="sent">Sent Messages</option>
+                        <option value="received">Received Messages</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Statistics Section -->
+            <div class="panel-section">
+                <h3>
+                    <i class="fas fa-chart-line"></i>
+                    Statistics
+                </h3>
+                <div class="stats-display" id="statsDisplay">
+                    <div class="stat-item">
+                        <span class="stat-label">
+                            <i class="fas fa-link"></i>
+                            Active Sessions:
+                        </span>
+                        <span class="stat-value" id="activeSessions">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">
+                            <i class="fas fa-envelope"></i>
+                            Total Messages:
+                        </span>
+                        <span class="stat-value" id="totalMessages">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">
+                            <i class="fas fa-clock"></i>
+                            Uptime:
+                        </span>
+                        <span class="stat-value" id="uptime">00:00:00</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">
+                            <i class="fas fa-server"></i>
+                            Server Status:
+                        </span>
+                        <span class="stat-value" id="serverStatus">Connecting...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Connection Settings Section -->
+            <div class="panel-section">
+                <h3>
+                    <i class="fas fa-cog"></i>
+                    Default Settings
+                </h3>
+                <div class="default-settings">
+                    <div class="setting-group">
+                        <label for="defaultBaudRate" class="setting-label">Default Baud Rate:</label>
+                        <select id="defaultBaudRate" class="select-field">
+                            <option value="9600">9600</option>
+                            <option value="19200">19200</option>
+                            <option value="38400">38400</option>
+                            <option value="57600">57600</option>
+                            <option value="115200" selected>115200</option>
+                            <option value="230400">230400</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="autoConnectOnCreate" checked>
+                            Auto-connect new sessions
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Sessions Container -->
+        <section class="sessions-container" id="sessionsContainer">
+            <!-- Sessions will be dynamically added here -->
+            <div class="empty-state" id="emptyState">
+                <div class="empty-state-content">
+                    <i class="fas fa-microchip fa-3x"></i>
+                    <h3>No UART Sessions</h3>
+                    <p>Click "Add Session" to create your first UART monitoring session</p>
+                    <button class="btn btn-primary" onclick="app.addSession()">
+                        <i class="fas fa-plus"></i> Create First Session
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Session Template -->
+    <template id="sessionTemplate">
+        <div class="session-card" data-session-id="">
+            <!-- Session Header -->
+            <div class="session-header">
+                <div class="session-info">
+                    <h3 class="session-title">
+                        <i class="fas fa-microchip"></i>
+                        <span class="session-name">Session</span>
+                        <span class="session-id" data-id=""></span>
+                    </h3>
+                    <div class="connection-status">
+                        <span class="status-dot" title="Connection status"></span>
+                        <span class="status-text">Disconnected</span>
+                        <span class="connection-info" style="display: none;"></span>
+                    </div>
+                </div>
+
+                <!-- Session Controls -->
+                <div class="session-controls">
+                    <div class="control-group connection-controls">
+                        <select class="port-select select-field" title="Select serial port">
+                            <option value="">Select Port...</option>
+                        </select>
+                        <select class="baud-select select-field" title="Select baud rate">
+                            <option value="9600">9600</option>
+                            <option value="19200">19200</option>
+                            <option value="38400">38400</option>
+                            <option value="57600">57600</option>
+                            <option value="115200" selected>115200</option>
+                            <option value="230400">230400</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group action-controls">
+                        <button class="connect-btn btn btn-success" title="Connect to selected port">
+                            <i class="fas fa-plug"></i>
+                            <span class="btn-text">Connect</span>
+                        </button>
+                        <button class="disconnect-btn btn btn-danger" disabled title="Disconnect from port">
+                            <i class="fas fa-times"></i>
+                            <span class="btn-text">Disconnect</span>
+                        </button>
+                        <button class="clear-btn btn" title="Clear session messages">
+                            <i class="fas fa-eraser"></i>
+                            <span class="btn-text">Clear</span>
+                        </button>
+                        <button class="close-btn btn btn-danger" title="Remove this session">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Session Body -->
+            <div class="session-body">
+                <!-- Message Display Area -->
+                <div class="message-display" tabindex="0" role="log" aria-label="Serial communication messages"
+                    title="Serial port messages will appear here">
+                    <!-- Messages will appear here dynamically -->
+                </div>
+
+                <!-- Input Section -->
+                <div class="input-section">
+                    <div class="input-group">
+                        <input type="text" class="message-input input-field"
+                            placeholder="Type command and press Enter..." title="Enter command to send to serial port"
+                            autocomplete="off">
+                        <button class="send-btn btn btn-success" title="Send command (Enter)">
+                            <i class="fas fa-paper-plane"></i>
+                            <span class="btn-text">Send</span>
+                        </button>
+                    </div>
+
+                    <!-- Input Options -->
+                    <div class="input-options">
+                        <div class="option-group display-options">
+                            <label class="checkbox-label" title="Automatically scroll to newest messages">
+                                <input type="checkbox" class="auto-scroll-checkbox" checked>
+                                <span class="checkmark"></span>
+                                Auto-scroll
+                            </label>
+                            <label class="checkbox-label" title="Show timestamps on messages">
+                                <input type="checkbox" class="timestamp-checkbox" checked>
+                                <span class="checkmark"></span>
+                                Timestamps
+                            </label>
+                            <label class="checkbox-label" title="Show sent commands in message log">
+                                <input type="checkbox" class="echo-checkbox">
+                                <span class="checkmark"></span>
+                                Echo commands
+                            </label>
+                        </div>
+
+                        <div class="option-group format-options">
+                            <label class="select-label">Format:</label>
+                            <select class="format-select select-field" title="Message display format">
+                                <option value="text" selected>Text</option>
+                                <option value="hex">Hexadecimal</option>
+                                <option value="mixed">Mixed</option>
+                            </select>
+
+                            <label class="select-label">Line Ending:</label>
+                            <select class="line-ending-select select-field" title="Line ending for sent messages">
+                                <option value="none">None</option>
+                                <option value="cr">CR (\r)</option>
+                                <option value="lf" selected>LF (\n)</option>
+                                <option value="crlf">CR+LF (\r\n)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Session Statistics -->
+                <div class="session-stats" style="display: none;">
+                    <div class="stat-item">
+                        <span class="stat-label">Messages:</span>
+                        <span class="stat-value session-message-count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Sent:</span>
+                        <span class="stat-value session-sent-count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Received:</span>
+                        <span class="stat-value session-received-count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Connected:</span>
+                        <span class="stat-value session-duration">00:00</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Notification Container -->
+    <div class="notification-container" id="notificationContainer">
+        <!-- Notifications will appear here dynamically -->
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner">
+            <div class="spinner-animation">
+                <i class="fas fa-spinner fa-spin"></i>
+            </div>
+            <p class="loading-text">Initializing UART connections...</p>
+            <div class="loading-details" id="loadingDetails">
+                Connecting to Flask server...
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Modal -->
+    <div class="modal-overlay" id="errorModal" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-exclamation-triangle"></i> Connection Error</h3>
+                <button class="modal-close" onclick="document.getElementById('errorModal').style.display='none'">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p id="errorMessage">An error occurred while connecting to the server.</p>
+                <div class="error-details" id="errorDetails" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="document.getElementById('errorModal').style.display='none'">Close</button>
+                <button class="btn btn-primary"
+                    onclick="app.init(); document.getElementById('errorModal').style.display='none';">Retry</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Keyboard Shortcuts Help -->
+    <div class="shortcuts-help" id="shortcutsHelp" style="display: none;">
+        <div class="shortcuts-content">
+            <h4><i class="fas fa-keyboard"></i> Keyboard Shortcuts</h4>
+            <div class="shortcut-list">
+                <div class="shortcut-item">
+                    <kbd>Ctrl</kbd> + <kbd>N</kbd>
+                    <span>Add new session</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Ctrl</kbd> + <kbd>S</kbd>
+                    <span>Scan ports</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Ctrl</kbd> + <kbd>E</kbd>
+                    <span>Export data</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Enter</kbd>
+                    <span>Send message (in input field)</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>F1</kbd>
+                    <span>Toggle this help</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Scripts -->
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+
+    <!-- Flask Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <script>
+        // Display Flask flash messages as notifications
+        document.addEventListener('DOMContentLoaded', function () {
+            {% for category, message in messages %}
+            if (window.app && window.app.showNotification) {
+                window.app.showNotification('{{ message|safe }}', '{{ category }}');
+            }
+            {% endfor %}
+        });
+    </script>
+    {% endif %}
+    {% endwith %}
+
+    <!-- Development Tools (only in debug mode) -->
+   
+    <div class="debug-panel" style="...">
+        <div>Flask Debug Mode</div>
+        <div>Socket.IO: <span id="debugSocketStatus">Disconnected</span></div>
+        <div>Sessions: <span id="debugSessionCount">0</span></div>
+    </div>
+    <script src="{{ url_for('static', filename='debug.js') }}"></script>
+    
+
+    
+
+</body>
+
+</html>
