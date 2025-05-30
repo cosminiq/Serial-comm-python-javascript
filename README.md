@@ -16,20 +16,20 @@ A web-based application for monitoring and managing multiple UART (serial) conne
 
 ## Screenshots
 
-![Main Interface](screenshots/main_interface.png)  
+![Main Interface](fotos/uart0.jpg)  
 *Caption: Overview of the main interface showing multiple sessions.*
 
-![Session Configuration](screenshots/session_config.png)  
+![Session Configuration](fotos/uart1.jpg)  
 *Caption: Configuring a session with port and baud rate selection.*
 
-![Message Display](screenshots/message_display.png)  
+![Message Display](fotos/uart3.jpg)  
 *Caption: Terminal-like message display with sent and received messages.*
 
 ## Installation
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/yourusername/multi-uart-monitor.git
+   git clone https://github.com/cosminiq/Serial-comm-python-javascript.git
    cd multi-uart-monitor
    ```
 
